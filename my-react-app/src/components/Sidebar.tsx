@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
     SearchIcon,
     UserPlusIcon,
@@ -8,49 +8,14 @@ import {
 import { FriendSearch } from './FriendSearch'
 import { UserProfile } from './UserProfile'
 import { FriendRequest } from './FriendRequest'
-interface User {
-    id: number
-    name: string
-    avatar: string
-    status: 'online' | 'offline' | 'away'
-    lastMessage: string
-    unreadCount?: number
-}
-const users: User[] = [
-    {
-        id: 1,
-        name: 'Sarah Wilson',
-        avatar: 'https://randomuser.me/api/portraits/women/1.jpg',
-        status: 'online',
-        lastMessage: "Sure, let's meet tomorrow!",
-        unreadCount: 3,
-    },
-    {
-        id: 2,
-        name: 'John Doe',
-        avatar: 'https://randomuser.me/api/portraits/men/1.jpg',
-        status: 'offline',
-        lastMessage: 'Thanks for the update',
-    },
-    {
-        id: 3,
-        name: 'Emma Thompson',
-        avatar: 'https://randomuser.me/api/portraits/women/2.jpg',
-        status: 'away',
-        lastMessage: 'How about the project?',
-        unreadCount: 1,
-    },
-]
+import { useFriendRequestStore} from '../stores/Features/friendRequest'
+import type { User } from '../stores/Features/friendRequest'
+
 interface SidebarProps {
-    onSelectUser: (userId: number) => void
-    selectedUserId?: number
-}
-const currentUser = {
-    name: 'Alex Smith',
-    avatar: 'https://randomuser.me/api/portraits/men/5.jpg',
-    status: 'online',
-    email: 'alex.smith@example.com',
-}
+    onSelectUser: (user: User | null) => void;
+    selectedUserId?: string | null;
+  }
+  
 const friendRequests = [
     {
         id: 101,
@@ -60,26 +25,26 @@ const friendRequests = [
     },
 ]
 export const Sidebar: React.FC<SidebarProps> = ({
-    onSelectUser,
+
     selectedUserId,
 }) => {
     const [showFriendSearch, setShowFriendSearch] = useState(false)
     const [showRequests, setShowRequests] = useState(false)
-    const handleAcceptRequest = (id: number) => {
-        console.log('Accepted request:', id)
-        // Handle accept logic
-    }
-    const handleRejectRequest = (id: number) => {
-        console.log('Rejected request:', id)
-        // Handle reject logic
-    }
+
     const handleBackToChats = () => {
         setShowFriendSearch(false)
         setShowRequests(false)
     }
+
+    const { friends, fetchFriends, isLoading, error, setSelectedFriend } = useFriendRequestStore();
+
+    useEffect(() => {
+        fetchFriends();
+    }, [fetchFriends]);
+
     return (
         <div className="w-full md:w-80 bg-white border-r border-gray-200 h-full flex flex-col">
-            <UserProfile user={currentUser} />
+            <UserProfile/>
             <div className="p-4 border-b border-gray-200">
                 <div className="flex gap-2">
                     {!showFriendSearch && !showRequests ? (
@@ -136,13 +101,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <FriendSearch />
             ) : showRequests ? (
                 <div className="flex-1 overflow-y-auto">
-                    {friendRequests.map((request) => (
-                        <FriendRequest
-                            key={request.id}
-                            request={request}
-                            onAccept={handleAcceptRequest}
-                            onReject={handleRejectRequest}
-                        />
+                    {friendRequests.map(() => (
+                        <FriendRequest/>
                     ))}
                 </div>
             ) : (
@@ -158,16 +118,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto">
-                        {users.map((user) => (
+                        {friends.map((user) => (
                             <div
                                 key={user.id}
-                                onClick={() => onSelectUser(user.id)}
+                                onClick={() => setSelectedFriend(user)}
                                 className={`flex items-center gap-3 p-4 hover:bg-gray-50 cursor-pointer ${selectedUserId === user.id ? 'bg-blue-50' : ''}`}
                             >
                                 <div className="relative">
                                     <img
-                                        src={user.avatar}
-                                        alt={user.name}
+                                        src="https://randomuser.me/api/portraits/women/1.jpg" // static avatar
+                            alt="user avatar"
                                         className="w-12 h-12 rounded-full object-cover"
                                     />
                                     <span
@@ -176,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 </div>
                                 <div className="flex-1">
                                     <div className="flex justify-between items-start">
-                                        <h3 className="font-medium">{user.name}</h3>
+                                        <h3 className="font-medium">{user.username}</h3>
                                         {user.unreadCount && (
                                             <span className="bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                                                 {user.unreadCount}
@@ -184,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                         )}
                                     </div>
                                     <p className="text-sm text-gray-500 truncate">
-                                        {user.lastMessage}
+                                        {user.lastMessage || 'hello'}
                                     </p>
                                 </div>
                             </div>

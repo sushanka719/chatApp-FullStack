@@ -1,40 +1,38 @@
-import React from 'react'
-import { Settings, LogOut } from 'lucide-react'
-interface UserProfileProps {
-    user: {
-        name: string
-        avatar: string
-        status: string
-        email: string
-    }
-}
-export const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
+import React from 'react';
+import { Settings, LogOut } from 'lucide-react';
+import { useAuthStore } from '../stores/Features/authStore';
+
+export const UserProfile: React.FC = () => {
+    const user = useAuthStore((state) => state.user);
+
+    //problem the username and gmail doenst show right after login.
     return (
         <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="relative">
                         <img
-                            src={user.avatar}
-                            alt={user.name}
+                            src="https://randomuser.me/api/portraits/women/1.jpg" // static avatar
+                            alt="user avatar"
                             className="w-10 h-10 rounded-full object-cover"
                         />
-                        <span className="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full bg-green-500" />
+                        <span className="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full bg-green-500" /> {/* static online status */}
                     </div>
-                    <div>
-                        <h3 className="font-medium">{user.name}</h3>
-                        <p className="text-sm text-gray-500">{user.email}</p>
+                    <div className="max-w-[150px] overflow-hidden whitespace-nowrap text-ellipsis">
+                        <h3 className="font-medium">{user?.username}</h3>
+                        <p className="text-sm text-gray-500">{user?.email}</p>
                     </div>
+
                 </div>
                 <div className="flex gap-2">
-                    <button className="p-2 hover:bg-gray-100 rounded-full">
+                    <button className="p-2 hover:bg-gray-100 rounded-full" aria-label="Settings">
                         <Settings className="w-5 h-5 text-gray-500" />
                     </button>
-                    <button className="p-2 hover:bg-gray-100 rounded-full">
+                    <button className="p-2 hover:bg-gray-100 rounded-full" aria-label="Log Out">
                         <LogOut className="w-5 h-5 text-gray-500" />
                     </button>
                 </div>
             </div>
         </div>
-    )
-}
+    );
+};
