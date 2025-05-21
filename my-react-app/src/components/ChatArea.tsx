@@ -33,73 +33,76 @@ export const ChatArea: React.FC = () => {
 
     const [isChatInitialized, setIsChatInitialized] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
+    const [prevFriendId, setPrevFriendId] = useState<number | null>(null); // Track previous friend
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
     const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Check authentication on mount
     useEffect(() => {
         if (!isAuthenticated && !authLoading && !authError) {
-            console.log('ChatArea: Checking authentication on mount', new Date().toISOString());
+            console.log('ChatArea: Checking authentication', new Date().toISOString());
             checkAuth();
         }
     }, [isAuthenticated, authLoading, authError, checkAuth]);
 
+    // Connect to WebSocket
     useEffect(() => {
         if (isAuthenticated && !isConnected && !isConnecting) {
-            console.log('ChatArea: Attempting to connect to chat', new Date().toISOString());
+            console.log('ChatArea: Connecting to chat', new Date().toISOString());
             setIsConnecting(true);
             connect();
             connectionTimeoutRef.current = setTimeout(() => {
-                console.log('ChatArea: Connection attempt timed out', new Date().toISOString());
+                console.log('ChatArea: Connection timed out', new Date().toISOString());
                 setIsConnecting(false);
             }, 10000);
         }
+        return () => {
+            if (connectionTimeoutRef.current) {
+                clearTimeout(connectionTimeoutRef.current);
+            }
+        };
     }, [isAuthenticated, isConnected, connect, isConnecting]);
 
+    // Initialize chat for selected friend
     useEffect(() => {
-        if (connectionTimeoutRef.current) {
-            clearTimeout(connectionTimeoutRef.current);
-            connectionTimeoutRef.current = null;
-        }
-        setIsConnecting(false);
-    }, [isConnected]);
-
-    useEffect(() => {
-        if (selectedFriend && isAuthenticated && !isChatInitialized) {
-            console.log('ChatArea: Initializing private chat', new Date().toISOString());
+        if (
+            selectedFriend &&
+            isAuthenticated &&
+            (!isChatInitialized || prevFriendId !== selectedFriend.id)
+        ) {
+            console.log('ChatArea: Initializing chat for friend', selectedFriend.id);
             const initChat = async () => {
                 try {
                     await startPrivateChat(selectedFriend.id);
                     if (currentChatId) {
-                        console.log('Fetching messages for chat:', currentChatId);
                         await fetchMessages(currentChatId, true);
-                        console.log('Joining chat:', currentChatId);
                         joinChat(currentChatId);
                         setIsChatInitialized(true);
+                        setPrevFriendId(selectedFriend.id);
                     }
                 } catch (err) {
                     console.error('ChatArea: Failed to initialize chat:', err);
+                    useChatStore.setState({ error: 'Failed to initialize chat' });
                 }
             };
             initChat();
         }
-    }, [selectedFriend, isAuthenticated, startPrivateChat, fetchMessages, joinChat, currentChatId, isChatInitialized]);
+    }, [selectedFriend, isAuthenticated, isChatInitialized, prevFriendId, startPrivateChat, fetchMessages, joinChat, currentChatId]);
 
-    const messagesContainerRef = useRef<HTMLDivElement>(null);
-
+    // Scroll to bottom for new messages or initialization
     useEffect(() => {
-        if (messagesContainerRef.current) {
+        if (messagesContainerRef.current && (messages.length > 0 || isChatInitialized)) {
             messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+            console.log('ChatArea: Scrolled to bottom', messages.length);
         }
-    }, [messages]);
+    }, [messages, isChatInitialized]);
 
+    // Log message updates
     useEffect(() => {
         console.log('Messages updated in UI:', messages);
     }, [messages]);
-
-    useEffect(() => {
-        console.log('Current chat ID:', currentChatId);
-    }, [currentChatId]);
 
     const [newMessage, setNewMessage] = useState('');
 
@@ -207,13 +210,24 @@ export const ChatArea: React.FC = () => {
                 </div>
             )}
             {chatError && (
-                <div className="p-4 text-red-500 text-center">Chat Error: {chatError}</div>
+                <div className="p-4 text-red-500 text-center">
+                    Chat Error: {chatError}
+                    <button
+                        onClick={() => useChatStore.setState({ error: null })}
+                        className="ml-2 text-blue-500 underline"
+                    >
+                        Dismiss
+                    </button>
+                </div>
             )}
             {isLoading && (
                 <div className="p-4 text-center text-gray-500">Loading messages...</div>
             )}
 
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 flex flex-col-reverse gap-4">
+            <div
+                ref={messagesContainerRef}
+                className="flex-1 overflow-y-auto p-4 bg-gray-50 flex flex-col-reverse gap-4"
+            >
                 {messages.length === 0 && !isLoading && (
                     <p className="text-gray-500 text-center">No messages yet</p>
                 )}
@@ -223,7 +237,7 @@ export const ChatArea: React.FC = () => {
                         id={m.id}
                         content={m.content}
                         timestamp={m.timestamp}
-                        isOwn={m.sender.id !== selectedFriend.id}
+                        isOwn={m.sender.id === user?.id} // Use authenticated user ID
                         status="read"
                     />
                 ))}
@@ -233,7 +247,10 @@ export const ChatArea: React.FC = () => {
             {currentChatId && (typingUsers[currentChatId]?.length ?? 0) > 0 && (
                 <div className="p-2 text-sm text-gray-500">
                     {typingUsers[currentChatId]
-                        ?.map((userId) => `User ${userId}`)
+                        ?.map((userId) => {
+                            const participant = selectedFriend.id === userId ? selectedFriend.username : `User ${userId}`;
+                            return participant;
+                        })
                         .join(', ')} {typingUsers[currentChatId].length > 1 ? 'are' : 'is'} typing...
                 </div>
             )}

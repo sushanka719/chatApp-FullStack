@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import { produce } from 'immer';
 import { create } from 'zustand';
+import { useAuthStore } from './authStore'; // Import your auth store
 
 interface Sender {
     id: number;
@@ -74,25 +75,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
         socket.on('connect', () => {
             console.log('Connected to WebSocket server');
             set({ isConnected: true, socket, error: null });
+            // Rejoin current chat if exists
+            const currentChatId = get().currentChatId;
+            if (currentChatId) {
+                socket.emit('joinChat', currentChatId);
+            }
         });
 
         socket.on('connect_error', (error) => {
-            console.error('Connection error:', error.message, error);
+            console.error('Connection error:', error.message);
             set({ isConnected: false, error: error.message });
             socket.disconnect();
         });
 
         socket.on('error', (error) => {
             console.error('Server error:', error.message);
-            set({ error: error.message });
+            set(
+                produce((state: ChatState) => {
+                    state.error = error.message;
+                    // Remove temp message if save failed
+                    if (error.message.includes('Failed to save message')) {
+                        state.messages = state.messages.filter((m) => !m.id.startsWith('temp_'));
+                        console.log('Removed temp message due to server error');
+                    }
+                })
+            );
         });
 
         socket.on('newMessage', (message: Message) => {
-            // console.log('Received newMessage:', message);
+            console.log('Received newMessage:', message);
             set(
                 produce((state: ChatState) => {
                     if (state.currentChatId === message.chatId) {
-                        state.messages = state.messages.filter((m) => !m.id.startsWith('temp_'));
+                        // Match temp message by content and sender
+                        const tempMessage = state.messages.find(
+                            (m) => m.id.startsWith('temp_') && m.content === message.content && m.sender.id === message.sender.id
+                        );
+                        if (tempMessage) {
+                            state.messages = state.messages.filter((m) => m.id !== tempMessage.id);
+                        }
                         if (!state.messages.some((m) => m.id === message.id)) {
                             state.messages.unshift(message);
                             state.totalMessages += 1;
@@ -107,7 +128,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     }
                 })
             );
-            // console.log('State after newMessage:', get().messages);
         });
 
         socket.on('userTyping', ({ userId, isTyping, chatId }) => {
@@ -136,6 +156,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     state.messages = state.messages.map((msg) =>
                         msg.sender.id === userId ? { ...msg, sender: { ...msg.sender, isOnline: true } } : msg
                     );
+                    console.log(`User ${userId} is online, updated status`);
                 })
             );
         });
@@ -152,6 +173,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     state.messages = state.messages.map((msg) =>
                         msg.sender.id === userId ? { ...msg, sender: { ...msg.sender, isOnline: false } } : msg
                     );
+                    console.log(`User ${userId} is offline, updated status`);
                 })
             );
         });
@@ -225,37 +247,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
 
             const response = await axios.get(`http://localhost:5000/chats/${chatId}/messages`, {
-                params: { page: reset ? 1 : get().page, limit: get().limit },
+                params: { page: get().page, limit: get().limit },
                 withCredentials: true,
             });
 
             const { data, totalMessages } = response.data;
             console.log('Fetched messages:', data);
-            const totalPages = Math.ceil(totalMessages / get().limit);
-
             set(
                 produce((state: ChatState) => {
-                    if (reset && totalPages > 0) {
-                        state.page = totalPages;
-                    } else if (reset) {
-                        state.page = 1;
-                    }
-
-                    state.messages = reset ? data.reverse() : [...data.reverse(), ...state.messages];
-                    state.hasMore = state.page > 1;
-
-                    if (!reset && data.length > 0) {
-                        state.page -= 1;
-                    }
-
+                    const newMessages = data.reverse().filter(
+                        (msg: Message) => !state.messages.some((m) => m.id === msg.id)
+                    );
+                    state.messages = reset
+                        ? [...newMessages, ...state.messages.filter((m) => m.id.startsWith('temp_'))]
+                        : [...newMessages, ...state.messages];
                     state.totalMessages = totalMessages;
+                    state.hasMore = data.length === get().limit;
+                    if (data.length > 0) {
+                        state.page += 1;
+                    }
                 })
             );
         } catch (error: any) {
-            set({
-                error: error.response?.data?.message || 'Failed to fetch messages',
-                isLoading: false,
-            });
+            console.error('Fetch messages error:', error);
+            set({ error: error.response?.data?.message || 'Failed to fetch messages' });
         } finally {
             set({ isLoading: false });
         }
@@ -263,16 +278,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     sendMessage: (content: string) => {
         const { socket, currentChatId } = get();
-        if (socket && socket.connected && currentChatId) {
+        const user = useAuthStore.getState().user; // Get actual user
+        if (socket && socket.connected && currentChatId && user) {
             console.log('Emitting sendMessage:', { chatId: currentChatId, content });
             socket.emit('sendMessage', { chatId: currentChatId, content });
 
-            // Optimistically add message to UI
             const tempMessage: Message = {
-                id: `temp_${Date.now()}`,
+                id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`, // Unique temp ID
                 content,
                 timestamp: new Date().toISOString(),
-                sender: { id: 1, username: 'You', isOnline: true }, // Replace with actual user data
+                sender: {
+                    id: user.id,
+                    username: user.username || 'You',
+                    isOnline: true,
+                },
                 chatId: currentChatId,
             };
             set(
@@ -287,8 +306,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 socket: !!socket,
                 isConnected: socket?.connected,
                 currentChatId,
+                user: !!user,
             });
-            set({ error: 'Socket not connected or no chat selected' });
+            set({ error: 'Socket not connected, no chat selected, or user not authenticated' });
         }
     },
 
